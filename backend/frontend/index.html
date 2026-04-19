@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hostel Marketplace</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #f5f5f5;
+            text-align: center;
+        }
+
+        h1 {
+            background: #333;
+            color: white;
+            padding: 15px;
+        }
+
+        .container {
+            margin: 20px;
+        }
+
+        input, select {
+            margin: 5px;
+            padding: 8px;
+            width: 200px;
+        }
+
+        button {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .products {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .card {
+            background: white;
+            padding: 15px;
+            margin: 10px;
+            width: 220px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Hostel Marketplace</h1>
+
+<button onclick="logout()">Logout</button>
+
+<!-- LOGIN -->
+<div class="container">
+    <h2>Login</h2>
+    <input id="login_email" placeholder="Email"><br>
+    <input id="login_password" placeholder="Password"><br>
+    <button onclick="login()">Login</button>
+</div>
+
+<!-- REGISTER -->
+<div class="container">
+    <h2>Register</h2>
+    <input id="name" placeholder="Name"><br>
+    <input id="email" placeholder="Email"><br>
+    <input id="password" placeholder="Password"><br>
+    <button onclick="register()">Register</button>
+</div>
+
+<!-- ADD PRODUCT -->
+<div class="container">
+    <h2>Add Product</h2>
+    <input id="title" placeholder="Title"><br>
+    <input id="desc" placeholder="Description"><br>
+    <input id="price" placeholder="Price"><br>
+
+    <!-- ✅ RENT FEATURE -->
+    <select id="type">
+        <option value="sell">Sell</option>
+        <option value="rent">Rent</option>
+    </select><br>
+
+    <input id="deposit" placeholder="Deposit (only for rent)"><br>
+
+    <input type="file" id="image"><br>
+
+    <button onclick="addProduct()">Add Product</button>
+</div>
+
+<!-- PRODUCTS -->
+<div class="container">
+    <h2>Products</h2>
+    <button onclick="loadProducts()">Load Products</button>
+    <div id="products" class="products"></div>
+</div>
+
+<script>
+
+let currentUserId = null;
+
+function login() {
+    fetch("http://127.0.0.1:5000/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            email: document.getElementById("login_email").value,
+            password: document.getElementById("login_password").value
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.message);
+        if (data.user_id) currentUserId = data.user_id;
+    });
+}
+
+function logout() {
+    currentUserId = null;
+    alert("Logged out");
+}
+
+function register() {
+    fetch("http://127.0.0.1:5000/register", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            name: document.getElementById("name").value,
+            email: document.getElementById("email").value,
+            password: document.getElementById("password").value
+        })
+    }).then(res => res.json()).then(data => alert(data.message));
+}
+
+function addProduct() {
+
+    if (!currentUserId) {
+        alert("Please login first!");
+        return;
+    }
+
+    let formData = new FormData();
+
+    formData.append("title", document.getElementById("title").value);
+    formData.append("description", document.getElementById("desc").value);
+    formData.append("price", document.getElementById("price").value);
+    formData.append("owner_id", currentUserId);
+
+    // ✅ NEW FIELDS
+    formData.append("type", document.getElementById("type").value);
+    formData.append("deposit", document.getElementById("deposit").value);
+
+    formData.append("image", document.getElementById("image").files[0]);
+
+    fetch("http://127.0.0.1:5000/add-product", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => alert(data.message));
+}
+
+function loadProducts() {
+    fetch("http://127.0.0.1:5000/products")
+    .then(res => res.json())
+    .then(data => {
+        let container = document.getElementById("products");
+        container.innerHTML = "";
+
+        data.forEach(p => {
+            let card = document.createElement("div");
+            card.className = "card";
+
+            card.innerHTML = `
+                <img src="http://127.0.0.1:5000/uploads/${p.image}">
+                <h3>${p.title}</h3>
+                <p>${p.description}</p>
+                <b>₹${parseFloat(p.price)}</b>
+                <p>Type: ${p.type}</p>
+                <p>Deposit: ₹${p.deposit || 0}</p>
+            `;
+
+            container.appendChild(card);
+        });
+    });
+}
+
+</script>
+
+</body>
+</html>

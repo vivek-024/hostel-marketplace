@@ -1,0 +1,30 @@
+### REGISTER
+POST http://127.0.0.1:5000/register
+Content-Type: application/json
+
+{
+  "name": "Vivek",
+  "email": "vivek@test.com",
+  "password": "1234"
+}
+
+### LOGIN
+POST http://127.0.0.1:5000/login
+Content-Type: application/json
+
+{
+  "email": "vivek@test.com",
+  "password": "1234"
+}
+
+### ADD PRODUCT
+POST http://127.0.0.1:5000/add-product
+Content-Type: application/json
+
+{
+  "title": "Calculator",
+  "description": "Casio calculator",
+  "price": 300,
+  "type": "sell",
+  "owner_id": 1
+}
