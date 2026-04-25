@@ -1,14 +1,8 @@
 import os
+import sqlite3
 from werkzeug.utils import secure_filename
 from flask import Flask, request, jsonify, send_from_directory
-# REMOVED: from flask_mysqldb import MySQL (Vercel doesn't support this easily)
 from flask_cors import CORS
-import config
-
-# ADDED: Compatibility for Vercel/Linux environments
-import pymysql
-pymysql.install_as_MySQLdb()
-from flask_mysqldb import MySQL 
 
 app = Flask(__name__)
 CORS(app)
@@ -17,14 +11,51 @@ CORS(app)
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# MYSQL CONFIG
-# These will use your config.py locally and Vercel Environment Variables online
-app.config['MYSQL_HOST'] = os.getenv('MYSQL_HOST', config.MYSQL_HOST)
-app.config['MYSQL_USER'] = os.getenv('MYSQL_USER', config.MYSQL_USER)
-app.config['MYSQL_PASSWORD'] = os.getenv('MYSQL_PASSWORD', config.MYSQL_PASSWORD)
-app.config['MYSQL_DB'] = os.getenv('MYSQL_DB', config.MYSQL_DB)
+# DATABASE CONNECTION
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
-mysql = MySQL(app)
+# CREATE TABLES (auto-run once)
+def init_db():
+    conn = get_db_connection()
+    
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        email TEXT,
+        password TEXT
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        description TEXT,
+        price REAL,
+        type TEXT,
+        owner_id INTEGER,
+        image TEXT,
+        deposit REAL
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        buyer_id INTEGER,
+        product_id INTEGER
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# Run DB init
+init_db()
 
 @app.route('/')
 def home():
@@ -34,28 +65,28 @@ def home():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-    cur = mysql.connection.cursor()
-    cur.execute(
-        "INSERT INTO users (name, email, password) VALUES (%s, %s, %s)",
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
         (data['name'], data['email'], data['password'])
     )
-    mysql.connection.commit()
-    cur.close()
+    conn.commit()
+    conn.close()
     return jsonify({"message": "User registered successfully"})
 
 # LOGIN
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-    cur = mysql.connection.cursor()
-    cur.execute(
-        "SELECT * FROM users WHERE email=%s AND password=%s",
+    conn = get_db_connection()
+    user = conn.execute(
+        "SELECT * FROM users WHERE email=? AND password=?",
         (data['email'], data['password'])
-    )
-    user = cur.fetchone()
-    cur.close()
+    ).fetchone()
+    conn.close()
+
     if user:
-        return jsonify({"message": "Login successful", "user_id": user[0]})
+        return jsonify({"message": "Login successful", "user_id": user["id"]})
     else:
         return jsonify({"message": "Invalid credentials"}), 401
 
@@ -71,50 +102,56 @@ def add_product():
 
     file = request.files['image']
     filename = secure_filename(file.filename)
-    
-    # Ensure upload folder exists
+
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
-        
+
     file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-    cur = mysql.connection.cursor()
-    cur.execute("""
+    conn = get_db_connection()
+    conn.execute("""
         INSERT INTO products 
         (title, description, price, type, owner_id, image, deposit)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (title, description, price, type_, owner_id, filename, deposit))
-    mysql.connection.commit()
-    cur.close()
+    conn.commit()
+    conn.close()
+
     return jsonify({"message": "Product added successfully"})
 
 # GET PRODUCTS
 @app.route('/products', methods=['GET'])
 def get_products():
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT * FROM products")
-    data = cur.fetchall()
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM products").fetchall()
+    conn.close()
+
     products = []
-    for row in data:
+    for row in rows:
         products.append({
-            "id": row[0], "title": row[1], "description": row[2],
-            "price": row[3], "type": row[4], "owner_id": row[5],
-            "image": row[6], "deposit": row[7]
+            "id": row["id"],
+            "title": row["title"],
+            "description": row["description"],
+            "price": row["price"],
+            "type": row["type"],
+            "owner_id": row["owner_id"],
+            "image": row["image"],
+            "deposit": row["deposit"]
         })
-    cur.close()
+
     return jsonify(products)
 
 # REQUEST PRODUCT
 @app.route('/request-product', methods=['POST'])
 def request_product():
     data = request.json
-    cur = mysql.connection.cursor()
-    cur.execute(
-        "INSERT INTO requests (buyer_id, product_id) VALUES (%s, %s)",
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO requests (buyer_id, product_id) VALUES (?, ?)",
         (data['buyer_id'], data['product_id'])
     )
-    mysql.connection.commit()
-    cur.close()
+    conn.commit()
+    conn.close()
     return jsonify({"message": "Request sent successfully"})
 
 # SERVE IMAGES
@@ -122,7 +159,169 @@ def request_product():
 def get_image(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-# Vercel needs the app object to be available at the top level
-# This block only runs when you run locally
+# RUN APP
+if __name__ == '__main__':
+    app.run(debug=True)import os
+import sqlite3
+from werkzeug.utils import secure_filename
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+# IMAGE CONFIG
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# DATABASE CONNECTION
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# CREATE TABLES (auto-run once)
+def init_db():
+    conn = get_db_connection()
+    
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        email TEXT,
+        password TEXT
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        description TEXT,
+        price REAL,
+        type TEXT,
+        owner_id INTEGER,
+        image TEXT,
+        deposit REAL
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        buyer_id INTEGER,
+        product_id INTEGER
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# Run DB init
+init_db()
+
+@app.route('/')
+def home():
+    return "Backend is running!"
+
+# REGISTER
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.json
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
+        (data['name'], data['email'], data['password'])
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "User registered successfully"})
+
+# LOGIN
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    conn = get_db_connection()
+    user = conn.execute(
+        "SELECT * FROM users WHERE email=? AND password=?",
+        (data['email'], data['password'])
+    ).fetchone()
+    conn.close()
+
+    if user:
+        return jsonify({"message": "Login successful", "user_id": user["id"]})
+    else:
+        return jsonify({"message": "Invalid credentials"}), 401
+
+# ADD PRODUCT
+@app.route('/add-product', methods=['POST'])
+def add_product():
+    title = request.form['title']
+    description = request.form['description']
+    price = request.form['price']
+    owner_id = request.form['owner_id']
+    type_ = request.form.get('type', 'sell')
+    deposit = request.form.get('deposit', 0)
+
+    file = request.files['image']
+    filename = secure_filename(file.filename)
+
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+    conn = get_db_connection()
+    conn.execute("""
+        INSERT INTO products 
+        (title, description, price, type, owner_id, image, deposit)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (title, description, price, type_, owner_id, filename, deposit))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Product added successfully"})
+
+# GET PRODUCTS
+@app.route('/products', methods=['GET'])
+def get_products():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM products").fetchall()
+    conn.close()
+
+    products = []
+    for row in rows:
+        products.append({
+            "id": row["id"],
+            "title": row["title"],
+            "description": row["description"],
+            "price": row["price"],
+            "type": row["type"],
+            "owner_id": row["owner_id"],
+            "image": row["image"],
+            "deposit": row["deposit"]
+        })
+
+    return jsonify(products)
+
+# REQUEST PRODUCT
+@app.route('/request-product', methods=['POST'])
+def request_product():
+    data = request.json
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO requests (buyer_id, product_id) VALUES (?, ?)",
+        (data['buyer_id'], data['product_id'])
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"message": "Request sent successfully"})
+
+# SERVE IMAGES
+@app.route('/uploads/<filename>')
+def get_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# RUN APP
 if __name__ == '__main__':
     app.run(debug=True)
